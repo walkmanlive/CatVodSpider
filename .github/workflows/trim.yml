@@ -1,0 +1,172 @@
+name: Trim spiders (one-time)
+
+# 一次性工作流：只保留 AList / Ali / Bili / Douban / FirstAid / Init / Local / Proxy / WebDAV
+# 及其必需依赖，删除其余爬虫、无用类和无用的 Gradle 依赖，然后提交回仓库。
+# 运行成功后可以把本文件删掉。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  trim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required files exist
+        run: |
+          set -e
+          cd app/src/main/java/com/github/catvod/spider
+          for f in AList Ali Bili Douban FirstAid Init Local Proxy WebDAV; do
+            test -f "$f.java" || { echo "缺少 $f.java，终止"; exit 1; }
+          done
+
+      - name: Remove unused classes
+        run: |
+          set -e
+          cat > /tmp/remove.txt <<'EOF'
+          app/src/main/java/com/github/catvod/bean/jianpian/Data.java
+          app/src/main/java/com/github/catvod/bean/jianpian/Detail.java
+          app/src/main/java/com/github/catvod/bean/jianpian/Resp.java
+          app/src/main/java/com/github/catvod/bean/market/Data.java
+          app/src/main/java/com/github/catvod/bean/market/Item.java
+          app/src/main/java/com/github/catvod/bean/star/Card.java
+          app/src/main/java/com/github/catvod/bean/star/Condition.java
+          app/src/main/java/com/github/catvod/bean/star/Group.java
+          app/src/main/java/com/github/catvod/bean/star/Info.java
+          app/src/main/java/com/github/catvod/bean/star/Person.java
+          app/src/main/java/com/github/catvod/bean/star/Query.java
+          app/src/main/java/com/github/catvod/bean/star/Video.java
+          app/src/main/java/com/github/catvod/bean/upyun/Data.java
+          app/src/main/java/com/github/catvod/bean/upyun/Item.java
+          app/src/main/java/com/github/catvod/bean/xpath/Rule.java
+          app/src/main/java/com/github/catvod/js/Method.java
+          app/src/main/java/com/github/catvod/spider/AppYsV2.java
+          app/src/main/java/com/github/catvod/spider/CaoLiu.java
+          app/src/main/java/com/github/catvod/spider/Cg51.java
+          app/src/main/java/com/github/catvod/spider/DaGongRen.java
+          app/src/main/java/com/github/catvod/spider/Dm84.java
+          app/src/main/java/com/github/catvod/spider/Doll.java
+          app/src/main/java/com/github/catvod/spider/Duanju.java
+          app/src/main/java/com/github/catvod/spider/Eighteen.java
+          app/src/main/java/com/github/catvod/spider/Fpie2.java
+          app/src/main/java/com/github/catvod/spider/Hanime.java
+          app/src/main/java/com/github/catvod/spider/HiPianZhiBo.java
+          app/src/main/java/com/github/catvod/spider/HkTv.java
+          app/src/main/java/com/github/catvod/spider/IQIYI.java
+          app/src/main/java/com/github/catvod/spider/Ikanbot.java
+          app/src/main/java/com/github/catvod/spider/J91.java
+          app/src/main/java/com/github/catvod/spider/JJAiPian.java
+          app/src/main/java/com/github/catvod/spider/JSDemo.java
+          app/src/main/java/com/github/catvod/spider/Jable.java
+          app/src/main/java/com/github/catvod/spider/JavDb.java
+          app/src/main/java/com/github/catvod/spider/Jianpian.java
+          app/src/main/java/com/github/catvod/spider/JustLive.java
+          app/src/main/java/com/github/catvod/spider/Kanqiu.java
+          app/src/main/java/com/github/catvod/spider/Kugou.java
+          app/src/main/java/com/github/catvod/spider/MGTV.java
+          app/src/main/java/com/github/catvod/spider/Market.java
+          app/src/main/java/com/github/catvod/spider/MiMei.java
+          app/src/main/java/com/github/catvod/spider/Miss.java
+          app/src/main/java/com/github/catvod/spider/NCat.java
+          app/src/main/java/com/github/catvod/spider/NiNi.java
+          app/src/main/java/com/github/catvod/spider/Notice.java
+          app/src/main/java/com/github/catvod/spider/PanSearch.java
+          app/src/main/java/com/github/catvod/spider/PanSou.java
+          app/src/main/java/com/github/catvod/spider/Push.java
+          app/src/main/java/com/github/catvod/spider/QxiTv.java
+          app/src/main/java/com/github/catvod/spider/ROU223.java
+          app/src/main/java/com/github/catvod/spider/RouVideo.java
+          app/src/main/java/com/github/catvod/spider/Star.java
+          app/src/main/java/com/github/catvod/spider/TvDy.java
+          app/src/main/java/com/github/catvod/spider/UpYun.java
+          app/src/main/java/com/github/catvod/spider/W55Movie.java
+          app/src/main/java/com/github/catvod/spider/WWRR.java
+          app/src/main/java/com/github/catvod/spider/Wogg.java
+          app/src/main/java/com/github/catvod/spider/XMVideo.java
+          app/src/main/java/com/github/catvod/spider/XPath.java
+          app/src/main/java/com/github/catvod/spider/XPathFilter.java
+          app/src/main/java/com/github/catvod/spider/XPathMac.java
+          app/src/main/java/com/github/catvod/spider/XPathMacFilter.java
+          app/src/main/java/com/github/catvod/spider/XVideos.java
+          app/src/main/java/com/github/catvod/spider/Xb6v.java
+          app/src/main/java/com/github/catvod/spider/XiaoZhiTiao.java
+          app/src/main/java/com/github/catvod/spider/YiSo.java
+          app/src/main/java/com/github/catvod/spider/Ying.java
+          app/src/main/java/com/github/catvod/spider/YingTan.java
+          app/src/main/java/com/github/catvod/spider/Yingshiche.java
+          app/src/main/java/com/github/catvod/spider/Ysj.java
+          app/src/main/java/com/github/catvod/spider/Zhaozy.java
+          app/src/main/java/com/github/catvod/ui/ScrollTextView.java
+          app/src/main/java/com/github/catvod/utils/AESEncryption.java
+          app/src/main/java/com/github/catvod/utils/CgImageUtil.java
+          app/src/main/java/com/github/catvod/utils/FileProvider.java
+          app/src/main/java/com/github/catvod/utils/FileUtil.java
+          app/src/main/java/com/github/catvod/utils/Prefers.java
+          EOF
+          xargs -a /tmp/remove.txt git rm -q --ignore-unmatch
+          find app/src/main/java -type d -empty -delete
+
+      - name: Update MainActivity, Gradle, ProGuard, Manifest
+        run: |
+          set -e
+          python3 - <<'PY'
+          import re
+          def edit(path, fn):
+              s = open(path, encoding='utf-8').read()
+              s = fn(s)
+              open(path, 'w', encoding='utf-8').write(s)
+
+          # 调试入口改用 Douban（原来用的 HiPianZhiBo 已被删除）
+          def main_activity(s):
+              for imp in ['Cg51', 'HiPianZhiBo', 'J91', 'RouVideo', 'XVideos']:
+                  s = s.replace('import com.github.catvod.spider.%s;\n' % imp, '')
+              s = s.replace('spider = new HiPianZhiBo();', 'spider = new Douban();')
+              if 'import com.github.catvod.spider.Douban;' not in s:
+                  s = s.replace('import com.github.catvod.spider.Init;', 'import com.github.catvod.spider.Douban;\nimport com.github.catvod.spider.Init;')
+              s = s.replace('spider.homeContent(true)', 'spider.homeContent(false)')
+              s = s.replace('spider.categoryContent("22.html", "1", true, new HashMap<>())', 'spider.categoryContent("hot_gaia", "1", false, new HashMap<>())')
+              s = s.replace('Arrays.asList("1034804")', 'Arrays.asList("1292052")')
+              s = s.replace('spider.playerContent("轉存原畫", "52d776427b3fad9f1536", new ArrayList<>())', 'spider.playerContent("", "", new ArrayList<>())')
+              s = s.replace('spider.searchContent("空姐", false)', 'spider.searchContent("肖申克的救赎", false)')
+              return s
+          edit('app/src/main/java/com/github/catvod/debug/MainActivity.java', main_activity)
+
+          # 去掉只有被删代码用到的依赖：QuickJS、JsoupXpath、BouncyCastle
+          def gradle(s):
+              for key in ['wang.harlon.quickjs', 'cn.wanghaomiao:JsoupXpath', 'org.bouncycastle:bcprov']:
+                  s = re.sub(r"^[ \t]*implementation '%s[^\n]*\n" % re.escape(key), '', s, flags=re.M)
+              return s
+          edit('app/build.gradle', gradle)
+
+          # 去掉对应的混淆规则
+          def proguard(s):
+              s = s.replace('-keep class com.github.catvod.js.* { *; }\n', '')
+              s = s.replace('# QuickJS\n-keep class com.whl.quickjs.** { *; }\n\n', '')
+              s = s.replace('# Smbj\n-keep class com.hierynomus.** { *; }\n-keep class net.engio.mbassy.** { *; }\n\n', '')
+              return s
+          edit('app/proguard-rules.pro', proguard)
+
+          # 去掉 QuickJS 的 overrideLibrary
+          def manifest(s):
+              s = s.replace('    <uses-sdk tools:overrideLibrary="com.whl.quickjs.android" />\n\n', '')
+              s = s.replace('\n    xmlns:tools="http://schemas.android.com/tools">', '>')
+              return s
+          edit('app/src/main/AndroidManifest.xml', manifest)
+          PY
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat | tail -n 5
+          if git diff --cached --quiet; then
+            echo "没有需要提交的改动（可能已经裁剪过），跳过"
+          else
+            git commit -m "chore: keep only selected spiders and trim unused code/dependencies"
+            git push
+          fi

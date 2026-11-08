@@ -6,12 +6,8 @@ import android.widget.Button;
 
 import com.github.catvod.R;
 import com.github.catvod.crawler.Spider;
-import com.github.catvod.spider.Cg51;
-import com.github.catvod.spider.HiPianZhiBo;
+import com.github.catvod.spider.Douban;
 import com.github.catvod.spider.Init;
-import com.github.catvod.spider.J91;
-import com.github.catvod.spider.RouVideo;
-import com.github.catvod.spider.XVideos;
 import com.orhanobut.logger.AndroidLogAdapter;
 import com.orhanobut.logger.Logger;
 
@@ -50,7 +46,7 @@ public class MainActivity extends Activity {
     private void initSpider() {
         try {
             Init.init(getApplicationContext());
-            spider = new HiPianZhiBo();
+            spider = new Douban();
             spider.init(this, "");
         } catch (Throwable e) {
             e.printStackTrace();
@@ -59,7 +55,7 @@ public class MainActivity extends Activity {
 
     public void homeContent() {
         try {
-            Logger.t("homeContent").d(spider.homeContent(true));
+            Logger.t("homeContent").d(spider.homeContent(false));
         } catch (Throwable e) {
             e.printStackTrace();
         }
@@ -76,7 +72,7 @@ public class MainActivity extends Activity {
     public void categoryContent(){
 
         try {
-            Logger.t("categoryContent").d(spider.categoryContent("22.html", "1", true, new HashMap<>()));
+            Logger.t("categoryContent").d(spider.categoryContent("hot_gaia", "1", false, new HashMap<>()));
         } catch (Throwable e) {
             e.printStackTrace();
         }
@@ -84,7 +80,7 @@ public class MainActivity extends Activity {
 
     public void detailContent() {
         try {
-            Logger.t("detailContent").d(spider.detailContent(Arrays.asList("1034804")));
+            Logger.t("detailContent").d(spider.detailContent(Arrays.asList("1292052")));
         } catch (Throwable e) {
             e.printStackTrace();
         }
@@ -92,7 +88,7 @@ public class MainActivity extends Activity {
 
     public void playerContent() {
         try {
-            Logger.t("playerContent").d(spider.playerContent("轉存原畫", "52d776427b3fad9f1536", new ArrayList<>()));
+            Logger.t("playerContent").d(spider.playerContent("", "", new ArrayList<>()));
         } catch (Throwable e) {
             e.printStackTrace();
         }
@@ -100,7 +96,7 @@ public class MainActivity extends Activity {
 
     public void searchContent() {
         try {
-            Logger.t("searchContent").d(spider.searchContent("空姐", false));
+            Logger.t("searchContent").d(spider.searchContent("肖申克的救赎", false));
         } catch (Throwable e) {
             e.printStackTrace();
         }

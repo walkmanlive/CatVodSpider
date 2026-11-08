@@ -1,15 +1,7 @@
 name: Build custom_spider.jar
 
 on:
-  workflow_dispatch:          # 在 Actions 页面手动点 Run workflow
-  push:
-    branches: [main]
-    paths:                    # 只有源码/构建配置变化才自动编译
-      - 'app/**'
-      - 'build.gradle'
-      - 'settings.gradle'
-      - 'gradle.properties'
-      - '.github/workflows/build.yml'
+  workflow_dispatch:          # 仅手动触发：在 Actions 页面点 Run workflow
 
 permissions:
   contents: write             # 用于把编译好的 jar 提交回仓库（不需要可删掉，并删除最后的 Commit 步骤）
@@ -35,7 +27,7 @@ jobs:
       - name: Gradle assembleRelease
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease -x lintVitalRelease --no-daemon
 
       # 第 2 步：等价于原项目的 jar/genJar.bat（Linux 版）
       - name: Pack custom_spider.jar

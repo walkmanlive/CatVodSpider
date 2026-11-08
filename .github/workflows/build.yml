@@ -1,0 +1,87 @@
+name: Build custom_spider.jar
+
+on:
+  workflow_dispatch:          # 在 Actions 页面手动点 Run workflow
+  push:
+    branches: [main]
+    paths:                    # 只有源码/构建配置变化才自动编译
+      - 'app/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - '.github/workflows/build.yml'
+
+permissions:
+  contents: write             # 用于把编译好的 jar 提交回仓库（不需要可删掉，并删除最后的 Commit 步骤）
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      # 第 1 步：Gradle 编译，产出混淆后的 classes.dex
+      - name: Gradle assembleRelease
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      # 第 2 步：等价于原项目的 jar/genJar.bat（Linux 版）
+      - name: Pack custom_spider.jar
+        run: |
+          set -e
+          cd jar
+          DEX=$(find ../app/build/intermediates/dex/release -name classes.dex | head -n 1)
+          echo "Using dex: $DEX"
+
+          rm -rf Smali_classes custom_spider.jar
+          java -jar 3rd/baksmali-2.5.2.jar d "$DEX" -o Smali_classes
+
+          rm -rf spider.jar/smali
+          mkdir -p spider.jar/smali/com/github/catvod
+          for d in spider parser js; do
+            if [ -d "Smali_classes/com/github/catvod/$d" ]; then
+              mv "Smali_classes/com/github/catvod/$d" spider.jar/smali/com/github/catvod/
+            fi
+          done
+
+          java -jar 3rd/apktool_2.4.1.jar b spider.jar -c
+          mv spider.jar/dist/dex.jar custom_spider.jar
+          md5sum custom_spider.jar | cut -d' ' -f1 > custom_spider.jar.md5
+
+          rm -rf spider.jar/build spider.jar/smali spider.jar/dist Smali_classes
+          ls -l custom_spider.jar custom_spider.jar.md5
+
+      # 第 3 步：作为构建产物下载
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom_spider
+          path: |
+            jar/custom_spider.jar
+            jar/custom_spider.jar.md5
+
+      # 第 4 步（可选）：把 jar 提交回仓库，方便用 raw / jsDelivr 链接直接引用
+      - name: Commit jar back to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add jar/custom_spider.jar jar/custom_spider.jar.md5
+          if git diff --cached --quiet; then
+            echo "jar 没有变化，跳过提交"
+          else
+            git commit -m "build: update custom_spider.jar"
+            git push
+          fi

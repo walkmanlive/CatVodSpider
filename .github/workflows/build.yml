@@ -26,8 +26,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # ubuntu-latest 已预装 Android SDK 且已接受许可，缺少的 platform / build-tools 会由 Gradle 自动下载
 
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4

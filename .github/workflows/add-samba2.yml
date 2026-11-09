@@ -1,0 +1,480 @@
+name: Add Samba spider (one-time)
+
+# 一次性工作流：加入 Samba 爬虫（改写自其他仓库，已适配本项目）
+#   - 新增 spider/Samba.java 和 bean/samba/{Drive,Item,Client}.java（可重复运行，会覆盖为最新版）
+#   - build.gradle 加入 smbj 依赖
+#   - proguard-rules.pro 加入 smbj 的保留规则
+# 运行成功后可以把本文件删掉。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  add-samba:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write Samba sources
+        run: |
+          set -e
+          mkdir -p app/src/main/java/com/github/catvod/bean/samba
+          cat > app/src/main/java/com/github/catvod/spider/Samba.java <<'EOF'
+          package com.github.catvod.spider;
+
+          import android.content.Context;
+          import android.text.TextUtils;
+
+          import com.github.catvod.bean.Class;
+          import com.github.catvod.bean.Result;
+          import com.github.catvod.bean.Vod;
+          import com.github.catvod.bean.samba.Client;
+          import com.github.catvod.bean.samba.Drive;
+          import com.github.catvod.bean.samba.Item;
+          import com.github.catvod.crawler.Spider;
+          import com.github.catvod.net.OkHttp;
+          import com.github.catvod.utils.Image;
+          import com.github.catvod.utils.Util;
+
+          import java.io.IOException;
+          import java.util.ArrayList;
+          import java.util.Collections;
+          import java.util.Comparator;
+          import java.util.HashMap;
+          import java.util.Iterator;
+          import java.util.List;
+          import java.util.Locale;
+          import java.util.Map;
+
+          public class Samba extends Spider {
+
+              private final Map<String, Client> clients = new HashMap<>();
+              private List<Drive> drives;
+              private String extend;
+              private String error;
+
+              private void fetchRule() {
+                  if (drives != null && !drives.isEmpty()) return;
+                  if (extend.startsWith("http")) extend = OkHttp.string(extend);
+                  drives = Drive.arrayFrom(extend);
+              }
+
+              private Drive getDrive(String name) throws IOException {
+                  int index = drives == null ? -1 : drives.indexOf(new Drive(name));
+                  if (index < 0) throw new IOException("未找到共享: " + name);
+                  return drives.get(index);
+              }
+
+              private synchronized Client getClient(Drive drive) {
+                  Client client = clients.get(drive.getName());
+                  if (client == null) {
+                      client = new Client(drive);
+                      clients.put(drive.getName(), client);
+                  }
+                  return client;
+              }
+
+              /**
+               * 把异常变成能直接在界面上看到的文字。
+               */
+              private String describe(Throwable e) {
+                  if (e instanceof LinkageError || e instanceof ClassNotFoundException) return "缺少 SMB 库（当前 App 没有内置 smbj）";
+                  String msg = e.getMessage();
+                  return e.getClass().getSimpleName() + (TextUtils.isEmpty(msg) ? "" : ": " + msg);
+              }
+
+              private String errorList(Throwable e) {
+                  List<Vod> list = new ArrayList<>();
+                  list.add(new Vod("error", "⚠ " + describe(e), Image.VIDEO, "", false));
+                  return Result.get().vod(list).page().string();
+              }
+
+              @Override
+              public void init(Context context, String extend) {
+                  this.extend = extend == null ? "" : extend;
+                  try {
+                      fetchRule();
+                  } catch (Throwable e) {
+                      error = describe(e);
+                  }
+              }
+
+              @Override
+              public String homeContent(boolean filter) {
+                  List<Class> classes = new ArrayList<>();
+                  if (drives != null) for (Drive drive : drives) classes.add(drive.toType());
+                  if (classes.isEmpty()) {
+                      String text = error != null ? error : "没有读取到共享配置";
+                      classes.add(new Class("error", "⚠ " + text, "1"));
+                  }
+                  return Result.get().classes(classes).string();
+              }
+
+              @Override
+              public String categoryContent(String tid, String pg, boolean filter, HashMap<String, String> extend) throws Exception {
+                  try {
+                      String key = tid.contains("/") ? tid.substring(0, tid.indexOf("/")) : tid;
+                      String path = tid.contains("/") ? tid.substring(tid.indexOf("/") + 1) : "";
+                      Drive drive = getDrive(key);
+                      List<Vod> list = new ArrayList<>();
+                      for (Item item : getList(drive, path)) {
+                          String vodId = getPath(key, path, item.getName());
+                          list.add(new Vod(vodId, item.getName(), item.isFolder() ? Image.FOLDER : Image.VIDEO, "", item.isFolder()));
+                      }
+                      return Result.get().vod(list).page().string();
+                  } catch (Throwable e) {
+                      return errorList(e);
+                  }
+              }
+
+              @Override
+              public String detailContent(List<String> ids) throws Exception {
+                  Vod vod = new Vod();
+                  vod.setVodPic(Image.VIDEO);
+                  try {
+                      String tid = ids.get(0);
+                      String key = tid.contains("/") ? tid.substring(0, tid.indexOf("/")) : tid;
+                      String path = tid.contains("/") ? tid.substring(tid.indexOf("/") + 1) : "";
+                      String parent = path.contains("/") ? path.substring(0, path.lastIndexOf("/")) : "";
+                      String name = parent.contains("/") ? parent.substring(parent.lastIndexOf("/") + 1) : key;
+                      Drive drive = getDrive(key);
+                      List<String> playUrls = new ArrayList<>();
+                      for (Item item : getList(drive, parent)) {
+                          if (!item.isFolder()) {
+                              playUrls.add(item.getName() + "$" + getPath(drive.getServer(), parent, item.getName()));
+                          }
+                      }
+                      vod.setVodId(name);
+                      vod.setVodName(name);
+                      vod.setVodPlayFrom(key);
+                      vod.setVodPlayUrl(TextUtils.join("#", playUrls));
+                  } catch (Throwable e) {
+                      vod.setVodId("error");
+                      vod.setVodName("⚠ " + describe(e));
+                  }
+                  return Result.string(vod);
+              }
+
+              @Override
+              public String playerContent(String flag, String id, List<String> vipFlags) {
+                  return Result.get().url(id).string();
+              }
+
+              private String getPath(String... texts) {
+                  List<String> items = new ArrayList<>();
+                  for (String text : texts) if (!TextUtils.isEmpty(text)) items.add(text);
+                  return TextUtils.join("/", items);
+              }
+
+              private List<Item> getList(Drive drive, String path) throws IOException {
+                  List<Item> items = getClient(drive).list(getPath(drive.getSubPath(), path));
+                  Iterator<Item> iterator = items.iterator();
+                  while (iterator.hasNext()) {
+                      Item item = iterator.next();
+                      if (item.isFolder() && item.getName().startsWith(".")) iterator.remove();
+                      else if (!item.isFolder() && !Util.isMedia(item.getName())) iterator.remove();
+                  }
+                  Collections.sort(items, new Comparator<Item>() {
+                      @Override
+                      public int compare(Item o1, Item o2) {
+                          if (o1.isFolder() && !o2.isFolder()) return -1;
+                          if (!o1.isFolder() && o2.isFolder()) return 1;
+                          return o1.getName().toLowerCase(Locale.ROOT).compareTo(o2.getName().toLowerCase(Locale.ROOT));
+                      }
+                  });
+                  return items;
+              }
+
+              @Override
+              public void destroy() {
+                  for (Client client : clients.values()) client.release();
+                  clients.clear();
+              }
+          }
+          EOF
+          cat > app/src/main/java/com/github/catvod/bean/samba/Drive.java <<'EOF'
+          package com.github.catvod.bean.samba;
+
+          import android.net.Uri;
+          import android.text.TextUtils;
+
+          import com.github.catvod.bean.Class;
+          import com.google.gson.Gson;
+          import com.google.gson.annotations.SerializedName;
+          import com.google.gson.reflect.TypeToken;
+
+          import java.lang.reflect.Type;
+          import java.util.ArrayList;
+          import java.util.List;
+
+          public class Drive {
+
+              @SerializedName("drives")
+              private List<Drive> drives;
+              @SerializedName("name")
+              private String name;
+              @SerializedName("server")
+              private String server;
+              @SerializedName(value = "user", alternate = {"username"})
+              private String user;
+              @SerializedName(value = "pass", alternate = {"password"})
+              private String pass;
+              @SerializedName("domain")
+              private String domain;
+
+              private transient Uri uri;
+
+              /**
+               * 支持两种配置：
+               * 1. 数组：[{"name":"NAS","server":"smb://192.168.1.2/video/movies","user":"","pass":""}]
+               * 2. 对象：{"drives":[ ...同上... ]}
+               */
+              public static List<Drive> arrayFrom(String str) {
+                  str = str == null ? "" : str.trim();
+                  if (str.startsWith("{")) {
+                      Drive root = new Gson().fromJson(str, Drive.class);
+                      return root == null || root.drives == null ? new ArrayList<>() : root.drives;
+                  }
+                  Type type = new TypeToken<List<Drive>>() {}.getType();
+                  List<Drive> items = new Gson().fromJson(str, type);
+                  return items == null ? new ArrayList<>() : items;
+              }
+
+              public Drive() {
+              }
+
+              public Drive(String name) {
+                  this.name = name;
+              }
+
+              public String getName() {
+                  return TextUtils.isEmpty(name) ? "" : name;
+              }
+
+              public int getPort() {
+                  return getUri().getPort();
+              }
+
+              private Uri getUri() {
+                  if (uri == null) uri = Uri.parse(TextUtils.isEmpty(server) ? "" : server.trim());
+                  return uri;
+              }
+
+              public String getHost() {
+                  String host = getUri().getHost();
+                  return host == null ? "" : host;
+              }
+
+              public String getShareName() {
+                  List<String> segments = getUri().getPathSegments();
+                  return segments.isEmpty() ? "" : segments.get(0);
+              }
+
+              /**
+               * 共享名之后的子目录，例如 smb://host/video/movies/2024 → movies/2024
+               */
+              public String getSubPath() {
+                  List<String> segments = getUri().getPathSegments();
+                  return segments.size() <= 1 ? "" : TextUtils.join("/", segments.subList(1, segments.size()));
+              }
+
+              public String getUser() {
+                  if (!TextUtils.isEmpty(user)) return user;
+                  String info = getUri().getUserInfo();
+                  if (TextUtils.isEmpty(info)) return "";
+                  return info.contains(":") ? info.substring(0, info.indexOf(":")) : info;
+              }
+
+              public String getPass() {
+                  if (!TextUtils.isEmpty(user)) return TextUtils.isEmpty(pass) ? "" : pass;
+                  String info = getUri().getUserInfo();
+                  return TextUtils.isEmpty(info) || !info.contains(":") ? "" : info.substring(info.indexOf(":") + 1);
+              }
+
+              public String getDomain() {
+                  return TextUtils.isEmpty(domain) ? "" : domain;
+              }
+
+              /**
+               * 播放用的基础地址：smb://[用户:密码@]主机[:端口]/共享名[/子目录]
+               */
+              public String getServer() {
+                  StringBuilder sb = new StringBuilder("smb://");
+                  if (!getUser().isEmpty()) {
+                      sb.append(Uri.encode(getUser()));
+                      if (!getPass().isEmpty()) sb.append(":").append(Uri.encode(getPass()));
+                      sb.append("@");
+                  }
+                  sb.append(getHost());
+                  if (getUri().getPort() > 0) sb.append(":").append(getUri().getPort());
+                  sb.append("/").append(getShareName());
+                  if (!getSubPath().isEmpty()) sb.append("/").append(getSubPath());
+                  return sb.toString();
+              }
+
+              public Class toType() {
+                  return new Class(getName(), getName(), "1");
+              }
+
+              @Override
+              public boolean equals(Object obj) {
+                  if (this == obj) return true;
+                  if (!(obj instanceof Drive)) return false;
+                  Drive it = (Drive) obj;
+                  return getName().equals(it.getName());
+              }
+
+              @Override
+              public int hashCode() {
+                  return getName().hashCode();
+              }
+          }
+          EOF
+          cat > app/src/main/java/com/github/catvod/bean/samba/Item.java <<'EOF'
+          package com.github.catvod.bean.samba;
+
+          public class Item {
+
+              private final String name;
+              private final boolean folder;
+
+              public Item(String name, boolean folder) {
+                  this.name = name;
+                  this.folder = folder;
+              }
+
+              public String getName() {
+                  return name;
+              }
+
+              public boolean isFolder() {
+                  return folder;
+              }
+          }
+          EOF
+          cat > app/src/main/java/com/github/catvod/bean/samba/Client.java <<'EOF'
+          package com.github.catvod.bean.samba;
+
+          import com.hierynomus.msfscc.FileAttributes;
+          import com.hierynomus.msfscc.fileinformation.FileIdBothDirectoryInformation;
+          import com.hierynomus.protocol.commons.EnumWithValue;
+          import com.hierynomus.smbj.SMBClient;
+          import com.hierynomus.smbj.auth.AuthenticationContext;
+          import com.hierynomus.smbj.connection.Connection;
+          import com.hierynomus.smbj.session.Session;
+          import com.hierynomus.smbj.share.DiskShare;
+
+          import java.io.IOException;
+          import java.util.ArrayList;
+          import java.util.List;
+
+          /**
+           * 所有用到 smbj 的代码都集中在这个类里，
+           * 这样即使宿主 App 没有内置 smbj，配置解析和首页分类也不会受影响。
+           */
+          public class Client {
+
+              private final Drive drive;
+              private SMBClient client;
+              private Connection connection;
+              private Session session;
+              private DiskShare share;
+
+              public Client(Drive drive) {
+                  this.drive = drive;
+              }
+
+              public synchronized List<Item> list(String path) throws IOException {
+                  List<Item> items = new ArrayList<>();
+                  for (FileIdBothDirectoryInformation item : getShare().list(path)) {
+                      boolean folder = EnumWithValue.EnumUtils.isSet(item.getFileAttributes(), FileAttributes.FILE_ATTRIBUTE_DIRECTORY);
+                      items.add(new Item(item.getFileName(), folder));
+                  }
+                  return items;
+              }
+
+              private DiskShare getShare() throws IOException {
+                  if (share == null || !share.isConnected()) connect();
+                  return share;
+              }
+
+              private void connect() throws IOException {
+                  release();
+                  int port = drive.getPort();
+                  client = new SMBClient();
+                  connection = port > 0 ? client.connect(drive.getHost(), port) : client.connect(drive.getHost());
+                  AuthenticationContext auth = drive.getUser().isEmpty() ? AuthenticationContext.guest() : new AuthenticationContext(drive.getUser(), drive.getPass().toCharArray(), drive.getDomain());
+                  session = connection.authenticate(auth);
+                  share = (DiskShare) session.connectShare(drive.getShareName());
+              }
+
+              public synchronized void release() {
+                  try {
+                      if (share != null) share.close();
+                  } catch (Exception ignored) {
+                  }
+                  try {
+                      if (session != null) session.close();
+                  } catch (Exception ignored) {
+                  }
+                  try {
+                      if (connection != null) connection.close();
+                  } catch (Exception ignored) {
+                  }
+                  try {
+                      if (client != null) client.close();
+                  } catch (Exception ignored) {
+                  }
+                  share = null;
+                  session = null;
+                  connection = null;
+                  client = null;
+              }
+          }
+          EOF
+
+      - name: Update build.gradle and proguard-rules.pro
+        run: |
+          set -e
+          python3 - <<'PY'
+          p = 'app/build.gradle'
+          s = open(p, encoding='utf-8').read()
+          dep = "    implementation 'com.hierynomus:smbj:0.11.5'"
+          if 'com.hierynomus:smbj' not in s:
+              anchor = "    implementation 'org.jsoup:jsoup:1.15.3'"
+              if anchor not in s:
+                  raise SystemExit('找不到 jsoup 依赖行，请手动在 dependencies 里加入: ' + dep.strip())
+              s = s.replace(anchor, anchor + '\n' + dep)
+              open(p, 'w', encoding='utf-8').write(s)
+
+          p = 'app/proguard-rules.pro'
+          s = open(p, encoding='utf-8').read()
+          if 'com.hierynomus' not in s:
+              if not s.endswith('\n'):
+                  s += '\n'
+              s += (
+                  '\n# Smbj\n'
+                  '-keep class com.hierynomus.** { *; }\n'
+                  '-keep class net.engio.mbassy.** { *; }\n'
+                  '-dontwarn javax.el.**\n'
+                  '-dontwarn org.ietf.jgss.**\n'
+                  '-dontwarn javax.security.auth.kerberos.**\n'
+              )
+              open(p, 'w', encoding='utf-8').write(s)
+          PY
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat | tail -n 5
+          if git diff --cached --quiet; then
+            echo "没有需要提交的改动（可能已经添加过），跳过"
+          else
+            git commit -m "feat: add Samba spider"
+            git push
+          fi

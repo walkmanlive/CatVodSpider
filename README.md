@@ -4,13 +4,9 @@ https://github.com/CatVodTVOfficial/CatVodTVSpider
 
 ## 总览 (觉得好用就点个Star吧)
 
-## 机器人
+## 浏览器内核
 ```shell
-https://t.me/liveddjkbot
-```
-> 授权命令
-```shell
-/pwd 888
+okhttp 3.12.13
 ```
 
 > 🟢 状态正常

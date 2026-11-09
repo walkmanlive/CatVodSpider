@@ -1,0 +1,62 @@
+name: Remove Samba spider (one-time)
+
+# 一次性工作流：撤销 add-samba.yml 做的全部改动，恢复到加入 Samba 之前
+#   - 删除 spider/Samba.java 和 bean/samba/{Drive,Item,Client}.java
+#   - 从 build.gradle 去掉 smbj 依赖
+#   - 从 proguard-rules.pro 去掉 smbj 的规则
+# 运行成功后，请手动删除 .github/workflows/add-samba.yml 和本文件
+# （GitHub 不允许工作流自己修改 .github/workflows 目录）。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  remove-samba:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove Samba files and config
+        run: |
+          set -e
+          git rm -q --ignore-unmatch \
+            app/src/main/java/com/github/catvod/spider/Samba.java \
+            app/src/main/java/com/github/catvod/bean/samba/Drive.java \
+            app/src/main/java/com/github/catvod/bean/samba/Item.java \
+            app/src/main/java/com/github/catvod/bean/samba/Client.java
+          find app/src/main/java -type d -empty -delete
+          python3 - <<'PY'
+          p = 'app/build.gradle'
+          s = open(p, encoding='utf-8').read()
+          s = s.replace("\n    implementation 'com.hierynomus:smbj:0.11.5'", '')
+          open(p, 'w', encoding='utf-8').write(s)
+
+          p = 'app/proguard-rules.pro'
+          s = open(p, encoding='utf-8').read()
+          block = (
+              '\n# Smbj\n'
+              '-keep class com.hierynomus.** { *; }\n'
+              '-keep class net.engio.mbassy.** { *; }\n'
+              '-dontwarn javax.el.**\n'
+              '-dontwarn org.ietf.jgss.**\n'
+              '-dontwarn javax.security.auth.kerberos.**\n'
+          )
+          s = s.replace(block, '')
+          open(p, 'w', encoding='utf-8').write(s)
+          PY
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat | tail -n 5
+          if git diff --cached --quiet; then
+            echo "没有需要提交的改动（可能已经回退过），跳过"
+          else
+            git commit -m "revert: remove Samba spider"
+            git push
+          fi

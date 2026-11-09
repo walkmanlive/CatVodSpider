@@ -1,4 +1,4 @@
-name: Add Samba spider (one-time)
+name: Add Samba spider 2 (one-time)
 
 # 一次性工作流：加入 Samba 爬虫（改写自其他仓库，已适配本项目）
 #   - 新增 spider/Samba.java 和 bean/samba/{Drive,Item,Client}.java（可重复运行，会覆盖为最新版）

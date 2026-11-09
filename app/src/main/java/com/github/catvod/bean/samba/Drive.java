@@ -7,13 +7,7 @@ import com.github.catvod.bean.Class;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
-import com.hierynomus.smbj.SMBClient;
-import com.hierynomus.smbj.auth.AuthenticationContext;
-import com.hierynomus.smbj.connection.Connection;
-import com.hierynomus.smbj.session.Session;
-import com.hierynomus.smbj.share.DiskShare;
 
-import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,10 +27,6 @@ public class Drive {
     @SerializedName("domain")
     private String domain;
 
-    private transient SMBClient client;
-    private transient Connection connection;
-    private transient Session session;
-    private transient DiskShare share;
     private transient Uri uri;
 
     /**
@@ -66,17 +56,21 @@ public class Drive {
         return TextUtils.isEmpty(name) ? "" : name;
     }
 
+    public int getPort() {
+        return getUri().getPort();
+    }
+
     private Uri getUri() {
         if (uri == null) uri = Uri.parse(TextUtils.isEmpty(server) ? "" : server.trim());
         return uri;
     }
 
-    private String getHost() {
+    public String getHost() {
         String host = getUri().getHost();
         return host == null ? "" : host;
     }
 
-    private String getShareName() {
+    public String getShareName() {
         List<String> segments = getUri().getPathSegments();
         return segments.isEmpty() ? "" : segments.get(0);
     }
@@ -89,20 +83,20 @@ public class Drive {
         return segments.size() <= 1 ? "" : TextUtils.join("/", segments.subList(1, segments.size()));
     }
 
-    private String getUser() {
+    public String getUser() {
         if (!TextUtils.isEmpty(user)) return user;
         String info = getUri().getUserInfo();
         if (TextUtils.isEmpty(info)) return "";
         return info.contains(":") ? info.substring(0, info.indexOf(":")) : info;
     }
 
-    private String getPass() {
+    public String getPass() {
         if (!TextUtils.isEmpty(user)) return TextUtils.isEmpty(pass) ? "" : pass;
         String info = getUri().getUserInfo();
         return TextUtils.isEmpty(info) || !info.contains(":") ? "" : info.substring(info.indexOf(":") + 1);
     }
 
-    private String getDomain() {
+    public String getDomain() {
         return TextUtils.isEmpty(domain) ? "" : domain;
     }
 
@@ -121,44 +115,6 @@ public class Drive {
         sb.append("/").append(getShareName());
         if (!getSubPath().isEmpty()) sb.append("/").append(getSubPath());
         return sb.toString();
-    }
-
-    public synchronized DiskShare getShare() throws IOException {
-        if (share == null || !share.isConnected()) connect();
-        return share;
-    }
-
-    private void connect() throws IOException {
-        release();
-        int port = getUri().getPort();
-        client = new SMBClient();
-        connection = port > 0 ? client.connect(getHost(), port) : client.connect(getHost());
-        AuthenticationContext auth = getUser().isEmpty() ? AuthenticationContext.guest() : new AuthenticationContext(getUser(), getPass().toCharArray(), getDomain());
-        session = connection.authenticate(auth);
-        share = (DiskShare) session.connectShare(getShareName());
-    }
-
-    public synchronized void release() {
-        try {
-            if (share != null) share.close();
-        } catch (Exception ignored) {
-        }
-        try {
-            if (session != null) session.close();
-        } catch (Exception ignored) {
-        }
-        try {
-            if (connection != null) connection.close();
-        } catch (Exception ignored) {
-        }
-        try {
-            if (client != null) client.close();
-        } catch (Exception ignored) {
-        }
-        share = null;
-        session = null;
-        connection = null;
-        client = null;
     }
 
     public Class toType() {

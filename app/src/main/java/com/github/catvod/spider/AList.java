@@ -1,6 +1,7 @@
 package com.github.catvod.spider;
 
 import android.content.Context;
+import android.net.Uri;
 import android.text.TextUtils;
 
 import com.github.catvod.bean.Class;
@@ -28,7 +29,10 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -66,8 +70,22 @@ public class AList extends Spider {
     private String post(Drive drive, String url, String param, boolean retry) {
         String response = OkHttp.post(url, param, drive.getHeader()).getBody();
         SpiderDebug.log(response);
-        if (retry && response.contains("Guest user is disabled") && login(drive)) return post(drive, url, param, false);
+        if (retry && needLogin(response) && login(drive)) return post(drive, url, param, false);
         return response;
+    }
+
+    /**
+     * 需要(重新)登入的兩種情況:
+     * 1. 訪客被停用: 回應含 "Guest user is disabled"
+     * 2. token 過期/失效: AList 以 HTTP 200 回傳 JSON, 其中 code 為 401
+     */
+    private boolean needLogin(String response) {
+        if (response.contains("Guest user is disabled")) return true;
+        try {
+            return new JSONObject(response).optInt("code") == 401;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @Override
@@ -128,7 +146,7 @@ public class AList extends Spider {
         vod.setVodName(name);
         vod.setVodPic(vodPic);
         List<String> playUrls = new ArrayList<>();
-        for (Item item : parents) if (item.isMedia(drive.isNew())) playUrls.add(item.getName() + "$" + item.getVodId(path) + findSubs(path, parents));
+        for (Item item : parents) if (item.isMedia(drive.isNew())) playUrls.add(encodeName(item.getName()) + "$" + encodeVodId(item.getVodId(path) + findSubs(path, parents)));
         vod.setVodPlayUrl(TextUtils.join("#", playUrls));
         return Result.string(vod);
     }
@@ -138,20 +156,68 @@ public class AList extends Spider {
         fetchRule();
         List<Vod> list = new ArrayList<>();
         List<Job> jobs = new ArrayList<>();
+        for (Drive drive : drives) if (drive.search()) jobs.add(new Job(drive, keyword));
         ExecutorService executor = Executors.newCachedThreadPool();
-        for (Drive drive : drives) if (drive.search()) jobs.add(new Job(drive.check(), keyword));
-        for (Future<List<Vod>> future : executor.invokeAll(jobs, 15, TimeUnit.SECONDS)) list.addAll(future.get());
+        try {
+            List<Future<List<Vod>>> futures = executor.invokeAll(jobs, 15, TimeUnit.SECONDS);
+            for (int i = 0; i < futures.size(); i++) {
+                Future<List<Vod>> future = futures.get(i);
+                String name = jobs.get(i).drive.getName();
+                // 逾時的任務已被取消, 對它呼叫 get() 會拋 CancellationException, 直接略過這個來源
+                if (future.isCancelled()) {
+                    SpiderDebug.log("AList search timeout: " + name);
+                    continue;
+                }
+                try {
+                    list.addAll(future.get());
+                } catch (ExecutionException | CancellationException e) {
+                    SpiderDebug.log("AList search failed: " + name + " " + e);
+                }
+            }
+        } finally {
+            executor.shutdownNow();
+        }
         return Result.string(list);
     }
 
     @Override
     public String playerContent(String flag, String id, List<String> vipFlags) {
-        String[] ids = id.split("~~~");
-        return Result.get().url(getDetail(ids[0]).getUrl()).subs(getSub(ids)).string();
+        String[] ids = decodeVodId(id).split("~~~");
+        String url = getDetail(ids[0]).getUrl();
+        return Result.get().url(url).header(getPlayHeader(url)).subs(getSubs(ids)).string();
+    }
+
+    /**
+     * "#" 是剧集之间的分隔符, 文件名/路径里出现 "#" 会把一集切成两段。
+     * id 部分用 "***" 暂代 "#", 播放时再还原; 显示用的名称只做展示, 换成全形 "＃"。
+     */
+    private static String encodeVodId(String vodId) {
+        return vodId.contains("#") ? vodId.replace("#", "***") : vodId;
+    }
+
+    private static String decodeVodId(String vodId) {
+        return vodId.contains("***") ? vodId.replace("***", "#") : vodId;
+    }
+
+    private static String encodeName(String name) {
+        return name.contains("#") ? name.replace("#", "＃") : name;
+    }
+
+    private static Map<String, String> getPlayHeader(String url) {
+        Map<String, String> header = new HashMap<>();
+        try {
+            String host = Uri.parse(url).getHost();
+            if (host == null) return header;
+            if (host.contains("115")) header.put("User-Agent", Util.CHROME);
+            else if (host.contains("baidupcs.com")) header.put("User-Agent", "pan.baidu.com");
+        } catch (Exception ignored) {
+        }
+        return header;
     }
 
     private boolean login(Drive drive) {
         try {
+            if (drive.getLogin() == null) return false;
             JSONObject params = new JSONObject();
             params.put("username", drive.getLogin().getUsername());
             params.put("password", drive.getLogin().getPassword());
@@ -229,7 +295,7 @@ public class AList extends Spider {
         return sb.toString();
     }
 
-    private List<Sub> getSub(String[] ids) {
+    private List<Sub> getSubs(String[] ids) {
         List<Sub> sub = new ArrayList<>();
         for (String text : ids) {
             if (!text.contains("@@@")) continue;
@@ -254,24 +320,30 @@ public class AList extends Spider {
 
         @Override
         public List<Vod> call() {
+            // check() 可能要發網路請求, 放在工作執行緒裡才會受 15 秒逾時限制
+            drive.check();
             List<Vod> alist = alist();
             return alist.size() > 0 ? alist : xiaoya();
         }
 
         private List<Vod> xiaoya() {
             List<Vod> list = new ArrayList<>();
-            Document doc = Jsoup.parse(OkHttp.string(drive.searchApi(keyword)));
-            for (Element a : doc.select("ul > a")) {
-                String[] splits = a.text().split("#");
-                if (!splits[0].contains("/")) continue;
-                int index = splits[0].lastIndexOf("/");
-                boolean file = Util.isMedia(splits[0]);
-                Item item = new Item();
-                item.setType(file ? 0 : 1);
-                item.setThumb(splits.length > 3 ? splits[4] : "");
-                item.setPath("/" + splits[0].substring(0, index));
-                item.setName(splits[0].substring(index + 1));
-                list.add(item.getVod(drive, vodPic));
+            try {
+                Document doc = Jsoup.parse(OkHttp.string(drive.searchApi(keyword)));
+                for (Element a : doc.select("ul > a")) {
+                    String[] splits = a.text().split("#");
+                    if (!splits[0].contains("/")) continue;
+                    int index = splits[0].lastIndexOf("/");
+                    boolean file = Util.isMedia(splits[0]);
+                    Item item = new Item();
+                    item.setType(file ? 0 : 1);
+                    item.setThumb(splits.length > 4 ? splits[4] : "");
+                    item.setPath("/" + splits[0].substring(0, index));
+                    item.setName(splits[0].substring(index + 1));
+                    list.add(item.getVod(drive, vodPic));
+                }
+            } catch (Exception e) {
+                SpiderDebug.log("AList xiaoya search failed: " + drive.getName() + " " + e);
             }
             return list;
         }

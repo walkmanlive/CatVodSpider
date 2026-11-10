@@ -43,10 +43,3 @@
     public static **[] values();
     public static ** valueOf(java.lang.String);
 }
-
-# Smbj
--keep class com.hierynomus.** { *; }
--keep class net.engio.mbassy.** { *; }
--dontwarn javax.el.**
--dontwarn org.ietf.jgss.**
--dontwarn javax.security.auth.kerberos.**

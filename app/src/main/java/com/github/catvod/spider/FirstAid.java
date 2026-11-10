@@ -50,7 +50,7 @@ public class FirstAid extends Spider {
         int digitValue = Integer.parseInt(digit);
         String cateId = extend.get("cateId") == null ? id : extend.get("cateId");
         Document doc = Jsoup.parse(OkHttp.string(siteUrl + String.format("/%s", cateId), getHeader()));
-        String pic = "https:" + doc.select(".block100").eq(digitValue).attr("src");
+        String pic = doc.select(".block100").eq(digitValue).attr("src");
         Elements lis = doc.select(".jj-title-li").eq(digitValue).select(".list-br3");
         List<Vod> list = new ArrayList<>();
         for (Element li : lis) {
